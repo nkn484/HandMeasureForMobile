@@ -15,7 +15,7 @@ import com.resources.handqualitygate.quality.QualityGateEngine
 import com.resources.handqualitygate.ringsize.FramePacket
 import com.resources.handqualitygate.ringsize.MediaPipeHandLandmarkerEngine
 import com.resources.handqualitygate.ringsize.RingSizeEstimator
-import com.resources.handqualitygate.tracking.FakeHandTracker
+import com.resources.handqualitygate.tracking.MediaPipeHandTracker
 import com.resources.handqualitygate.upload.CaptureUploader
 import com.resources.handqualitygate.upload.NoopCaptureUploader
 import com.resources.handqualitygate.upload.OkHttpCaptureUploader
@@ -30,9 +30,9 @@ import java.util.concurrent.Executors
 
 class MainViewModel(application: Application) : AndroidViewModel(application), AutoCaptureCallbacks {
     private val config = QualityGateConfig()
-    private val tracker = FakeHandTracker()
-    private val engine = QualityGateEngine(config)
     private val handLandmarkerEngine = MediaPipeHandLandmarkerEngine(application)
+    private val tracker = MediaPipeHandTracker(handLandmarkerEngine)
+    private val engine = QualityGateEngine(config)
     private val ringSizeEstimator = RingSizeEstimator(handEngine = handLandmarkerEngine)
     private val uploadConfig =
         UploadConfig(

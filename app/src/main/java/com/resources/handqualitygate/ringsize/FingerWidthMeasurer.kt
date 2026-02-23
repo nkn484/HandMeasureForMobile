@@ -2,6 +2,7 @@ package com.resources.handqualitygate.ringsize
 
 import android.graphics.PointF
 import org.opencv.core.Core
+import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfByte
 import org.opencv.core.Point
@@ -24,12 +25,20 @@ data class FingerWidthResult(
 class FingerWidthMeasurer(
     private val edgeThreshold: Double = 35.0,
     private val roiRadiusPx: Int = 80,
+    private val minWidthMm: Double = 12.0,
+    private val maxWidthMm: Double = 30.0,
+    private val symmetryTolerance: Double = 0.25,
 ) {
     fun measure(frame: FramePacket, hand: HandDetection, mmPerPx: Double): FingerWidthResult? {
         if (hand.landmarks2dPx.size < 15) return null
+        if (mmPerPx <= 0.0) return null
         val jpeg = frame.toJpegBytes() ?: return null
-        val gray = Imgcodecs.imdecode(MatOfByte(*jpeg), Imgcodecs.IMREAD_GRAYSCALE)
-        if (gray.empty()) return null
+        val byteMat = MatOfByte(*jpeg)
+        val gray = Imgcodecs.imdecode(byteMat, Imgcodecs.IMREAD_GRAYSCALE)
+        if (gray.empty()) {
+            byteMat.release()
+            return null
+        }
 
         val mcp = hand.landmarks2dPx[13]
         val pip = hand.landmarks2dPx[14]
@@ -53,31 +62,60 @@ class FingerWidthMeasurer(
             (roiRadiusPx * 2).coerceAtMost(gray.cols() - (cx - roiRadiusPx).coerceAtLeast(0)),
             (roiRadiusPx * 2).coerceAtMost(gray.rows() - (cy - roiRadiusPx).coerceAtLeast(0)),
         )
-        if (roi.width <= 0 || roi.height <= 0) return null
+        if (roi.width <= 0 || roi.height <= 0) {
+            gray.release()
+            byteMat.release()
+            return null
+        }
 
         val roiMat = Mat(gray, roi)
-        val grad = Mat()
-        Imgproc.Sobel(roiMat, grad, -1, 1, 0)
+        val gradX = Mat()
+        val gradY = Mat()
+        val gradMag = Mat()
         val gradAbs = Mat()
-        Core.convertScaleAbs(grad, gradAbs)
 
-        val center = PointF((ringPoint.x - roi.x), (ringPoint.y - roi.y))
-        val left = scanEdge(gradAbs, center, perp, -1)
-        val right = scanEdge(gradAbs, center, perp, 1)
+        return try {
+            Imgproc.Sobel(roiMat, gradX, CvType.CV_32F, 1, 0)
+            Imgproc.Sobel(roiMat, gradY, CvType.CV_32F, 0, 1)
+            Core.magnitude(gradX, gradY, gradMag)
+            Core.convertScaleAbs(gradMag, gradAbs)
 
-        if (left == null || right == null) return null
-        val leftAbs = PointF(left.x + roi.x, left.y + roi.y)
-        val rightAbs = PointF(right.x + roi.x, right.y + roi.y)
-        val widthPx = distance(leftAbs, rightAbs)
-        if (widthPx <= 1.0) return null
+            val center = PointF((ringPoint.x - roi.x), (ringPoint.y - roi.y))
+            val left = scanEdge(gradAbs, center, perp, -1)
+            val right = scanEdge(gradAbs, center, perp, 1)
 
-        return FingerWidthResult(
-            widthPx = widthPx,
-            widthMm = widthPx * mmPerPx,
-            ringPointPx = ringPoint,
-            leftEdgePx = leftAbs,
-            rightEdgePx = rightAbs,
-        )
+            if (left == null || right == null) return null
+            val leftAbs = PointF(left.x + roi.x, left.y + roi.y)
+            val rightAbs = PointF(right.x + roi.x, right.y + roi.y)
+            val widthPx = distance(leftAbs, rightAbs)
+            if (widthPx <= 1.0) return null
+
+            val widthMm = widthPx * mmPerPx
+            if (widthMm < minWidthMm || widthMm > maxWidthMm) return null
+
+            val leftDist = distance(ringPoint, leftAbs)
+            val rightDist = distance(ringPoint, rightAbs)
+            val denom = max(leftDist, rightDist)
+            if (denom == 0.0) return null
+            val symmetryScore = abs(leftDist - rightDist) / denom
+            if (symmetryScore > symmetryTolerance) return null
+
+            FingerWidthResult(
+                widthPx = widthPx,
+                widthMm = widthMm,
+                ringPointPx = ringPoint,
+                leftEdgePx = leftAbs,
+                rightEdgePx = rightAbs,
+            )
+        } finally {
+            gradAbs.release()
+            gradMag.release()
+            gradY.release()
+            gradX.release()
+            roiMat.release()
+            gray.release()
+            byteMat.release()
+        }
     }
 
     private fun scanEdge(

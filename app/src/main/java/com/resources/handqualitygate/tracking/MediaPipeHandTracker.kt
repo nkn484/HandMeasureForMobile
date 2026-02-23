@@ -16,7 +16,9 @@ class MediaPipeHandTracker(
     override fun observe(image: ImageProxy): HandObservation {
         val timestampMs = TimeUnit.NANOSECONDS.toMillis(image.imageInfo.timestamp)
         val framePacket = FramePacket(timestampMs = timestampMs, qualityScore = 0f, imageProxy = image)
-        val detection = handEngine.detect(framePacket) ?: return emptyObservation(image.width, image.height)
+        val detection =
+            handEngine.detectLive(framePacket, timestampMs) ?: handEngine.getLatestDetection()
+                ?: return emptyObservation(image.width, image.height)
         if (detection.landmarks2dPx.isEmpty()) return emptyObservation(image.width, image.height)
 
         val minX = detection.landmarks2dPx.minOf { it.x }

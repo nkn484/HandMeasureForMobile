@@ -11,5 +11,6 @@ data class HandDetection(
 
 interface HandLandmarkerEngine {
     fun detect(frame: FramePacket): HandDetection?
+    fun detectLive(frame: FramePacket, timestampMs: Long): HandDetection? = detect(frame)
+    fun getLatestDetection(): HandDetection? = null
 }
-

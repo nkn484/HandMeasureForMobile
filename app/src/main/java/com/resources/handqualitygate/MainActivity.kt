@@ -109,7 +109,7 @@ private fun MainScreen(viewModel: MainViewModel) {
             analyzer = viewModel.analyzer,
         )
         onDispose {
-            cameraController.unbind()
+            cameraController.shutdown()
         }
     }
 

@@ -33,5 +33,8 @@ class FakeHandLandmarkerEngine : HandLandmarkerEngine {
             confidence = 0.9f,
         )
     }
-}
 
+    override fun detectLive(frame: FramePacket, timestampMs: Long): HandDetection? = detect(frame)
+
+    override fun getLatestDetection(): HandDetection? = null
+}

@@ -2,6 +2,7 @@ package com.resources.handqualitygate.ringsize
 
 import android.graphics.PointF
 import android.graphics.RectF
+import androidx.camera.core.ImageProxy
 import org.opencv.core.Mat
 import org.opencv.core.MatOfByte
 import org.opencv.core.MatOfPoint
@@ -9,6 +10,7 @@ import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Rect
 import org.opencv.core.Size
+import org.opencv.core.CvType
 import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
@@ -23,55 +25,88 @@ class OpenCvCardDetector(
     private val minAngleScore: Float = 0.65f,
 ) : CardDetector {
     override fun detect(frame: FramePacket): CardDetection? {
-        val jpeg = frame.toJpegBytes() ?: return null
-        val mat = Imgcodecs.imdecode(MatOfByte(*jpeg), Imgcodecs.IMREAD_GRAYSCALE)
-        if (mat.empty()) return null
-
-        val blurred = Mat()
-        Imgproc.GaussianBlur(mat, blurred, Size(5.0, 5.0), 0.0)
-
-        val edges = Mat()
-        Imgproc.Canny(blurred, edges, 50.0, 150.0)
-
+        val matsToRelease = ArrayList<Mat>()
         val contours = ArrayList<MatOfPoint>()
-        Imgproc.findContours(edges, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+        var mat: Mat? = null
+        var matOfByte: MatOfByte? = null
+        var fullLumaMat: Mat? = null
+        var lumaMat: Mat? = null
 
-        val frameArea = (mat.width() * mat.height()).toDouble()
-        var best: Candidate? = null
-
-        for (contour in contours) {
-            val area = Imgproc.contourArea(contour)
-            if (area < frameArea * minAreaRatio) continue
-
-            val peri = Imgproc.arcLength(MatOfPoint2f(*contour.toArray()), true)
-            val approx = MatOfPoint2f()
-            Imgproc.approxPolyDP(MatOfPoint2f(*contour.toArray()), approx, 0.02 * peri, true)
-
-            val points = approx.toArray()
-            if (points.size != 4) continue
-
-            val rect = Imgproc.boundingRect(MatOfPoint(*points))
-            val corners = orderCorners(points)
-            val aspect = estimateAspect(corners)
-            val aspectScore = aspectScore(aspect)
-            if (aspectScore <= 0f) continue
-
-            val angleScore = angleScore(corners)
-            if (angleScore < minAngleScore) continue
-
-            val areaScore = (area / frameArea).toFloat().coerceIn(0f, 1f)
-            val cutoffPenalty = cutoffPenalty(rect, mat.width(), mat.height())
-
-            val confidence =
-                (0.5f * aspectScore + 0.3f * angleScore + 0.2f * areaScore) * cutoffPenalty
-
-            val candidate = Candidate(corners, aspectScore, angleScore, areaScore, confidence)
-            if (best == null || candidate.confidence > best.confidence) {
-                best = candidate
+        try {
+            val proxy = frame.imageProxy
+            if (proxy != null) {
+                val luma = buildLumaMat(proxy) ?: return null
+                fullLumaMat = luma.fullMat
+                lumaMat = luma.croppedMat
+                mat = lumaMat
+            } else {
+                val jpeg = frame.toJpegBytes() ?: return null
+                matOfByte = MatOfByte(*jpeg)
+                mat = Imgcodecs.imdecode(matOfByte, Imgcodecs.IMREAD_GRAYSCALE)
+                if (mat.empty()) return null
             }
-        }
 
-        return best?.toDetection()
+            val blurred = Mat()
+            matsToRelease += blurred
+            Imgproc.GaussianBlur(mat, blurred, Size(5.0, 5.0), 0.0)
+
+            val edges = Mat()
+            matsToRelease += edges
+            Imgproc.Canny(blurred, edges, 50.0, 150.0)
+
+            Imgproc.findContours(edges, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+
+            val matLocal = mat ?: return null
+            val frameArea = (matLocal.width() * matLocal.height()).toDouble()
+            var best: Candidate? = null
+
+            for (contour in contours) {
+                val area = Imgproc.contourArea(contour)
+                if (area < frameArea * minAreaRatio) continue
+
+                val contourPoints = contour.toArray()
+                val contour2f = MatOfPoint2f(*contourPoints)
+                matsToRelease += contour2f
+                val peri = Imgproc.arcLength(contour2f, true)
+                val approx = MatOfPoint2f()
+                matsToRelease += approx
+                Imgproc.approxPolyDP(contour2f, approx, 0.02 * peri, true)
+
+                val points = approx.toArray()
+                if (points.size != 4) continue
+
+                val rectMat = MatOfPoint(*points)
+                matsToRelease += rectMat
+                val rect = Imgproc.boundingRect(rectMat)
+                val corners = orderCorners(points)
+                val aspect = estimateAspect(corners)
+                val aspectScore = aspectScore(aspect)
+                if (aspectScore <= 0f) continue
+
+                val angleScore = angleScore(corners)
+                if (angleScore < minAngleScore) continue
+
+                val areaScore = (area / frameArea).toFloat().coerceIn(0f, 1f)
+                val cutoffPenalty = cutoffPenalty(rect, matLocal.width(), matLocal.height())
+
+                val confidence =
+                    (0.5f * aspectScore + 0.3f * angleScore + 0.2f * areaScore) * cutoffPenalty
+
+                val candidate = Candidate(corners, aspectScore, angleScore, areaScore, confidence)
+                if (best == null || candidate.confidence > best.confidence) {
+                    best = candidate
+                }
+            }
+
+            return best?.toDetection()
+        } finally {
+            contours.forEach { it.release() }
+            matsToRelease.forEach { it.release() }
+            releaseIfDistinct(lumaMat, fullLumaMat)
+            releaseIfDistinct(mat, lumaMat)
+            fullLumaMat?.release()
+            matOfByte?.release()
+        }
     }
 
     private data class Candidate(
@@ -165,5 +200,38 @@ class OpenCvCardDetector(
                 box.bottom > (1f - margin)
         return if (cut) 0.6f else 1f
     }
-}
 
+    private data class LumaMatResult(
+        val fullMat: Mat,
+        val croppedMat: Mat,
+    )
+
+    private fun buildLumaMat(proxy: ImageProxy): LumaMatResult? {
+        if (proxy.planes.isEmpty()) return null
+        val yPlane = proxy.planes[0]
+        val buffer = yPlane.buffer
+        val width = proxy.width
+        val height = proxy.height
+        val rowStride = yPlane.rowStride
+        if (width <= 0 || height <= 0 || rowStride <= 0) return null
+
+        buffer.rewind()
+        val fullMat = Mat(height, rowStride, CvType.CV_8UC1, buffer)
+        val croppedMat =
+            if (rowStride == width) {
+                fullMat
+            } else {
+                fullMat.colRange(0, width)
+            }
+        return LumaMatResult(fullMat = fullMat, croppedMat = croppedMat)
+    }
+
+    private fun releaseIfDistinct(
+        primary: Mat?,
+        secondary: Mat?,
+    ) {
+        if (primary == null) return
+        if (primary === secondary) return
+        primary.release()
+    }
+}
