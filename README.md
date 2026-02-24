@@ -1,25 +1,54 @@
-# HandQualityGateAutoCapture
+# HandMeasure SDK (Android)
 
-This Android app performs live quality gating for hand capture, then estimates ring size from the best frames.
+## What it is
+- Android library `:handmeasure-sdk` providing a drop-in ActivityResultContract to measure ring size on-device.
+- Sample app module `:app` shows integration.
+- On-device only: no uploads by default; MediaPipe + OpenCV run locally.
 
-## Pipeline Overview
-1. **Camera input** (CameraX, YUV frames).
-2. **Hand ROI tracking** via MediaPipe Hand Landmarker in **LIVE_STREAM** mode.
-   - Landmarks drive a bounding ROI and confidence for the quality gate.
-3. **Quality gate** evaluates blur, motion, exposure, and ROI stability.
-4. **Card detection** (OpenCV) runs on the **Y-plane** for speed and lower memory use.
-5. **State machine** triggers capture when quality is stable.
-6. **Capture** encodes JPEG only when persisting or uploading.
-7. **Size estimation** (offline on captured frames):
-   - Card detection -> scale (mm/px)
-   - Hand landmarks -> ring finger axis
-   - Finger width measurement -> ring size aggregation
+## Integrate
+1) Include module dependency:
+```kts
+dependencies {
+    implementation(project(":handmeasure-sdk"))
+}
+```
+2) Launch measurement from your screen:
+```kotlin
+val launcher = rememberLauncherForActivityResult(HandMeasureContract()) { outcome ->
+    when (outcome) {
+        is HandMeasureOutcome.Success -> /* use outcome.result */
+        is HandMeasureOutcome.Cancelled -> /* show message */
+        is HandMeasureOutcome.Failure -> /* handle error */
+    }
+}
+launcher.launch(HandMeasureRequest())
+```
+3) Place MediaPipe model at `handmeasure-sdk/src/main/assets/hand_landmarker.task` (already included).
 
-## Model Asset Setup
-This project requires the MediaPipe Hand Landmarker model file:
+## Request config (HandMeasureConfig)
+- `reference`: `Id1Card` (default) or `Custom(widthMm,heightMm,label)`.
+- `requireReference`: enforce card detection for capture.
+- `preferredSizeSystem`: VN/US/EU/JP.
+- `fitPreference`: SNUG/COMFORT/LOOSE.
+- `targetFinger`: RING/INDEX/MIDDLE/LITTLE.
+- `preferredHand`: LEFT/RIGHT/AUTO.
+- `timeoutMs`: auto-cancel timer.
+- `debugEnabled`: show debug panel + debug payload in outcome.
 
-- **Path:** `app/src/main/assets/hand_landmarker.task`
-- If missing, the hand landmarker will not initialize.
-- A placeholder instruction file also exists at `app/src/main/assets/README.txt`.
+## Outcome
+- `Success(result: MeasurementResult)`
+  - `recommended`: `RingSizeRecommendation` (size + range + alternatives)
+  - `confidence`: score + level (HIGH/MEDIUM/LOW)
+  - `warnings`: list of `MeasurementWarning`
+  - `debug`: present only if `debugEnabled=true`
+- `Cancelled(reason)` with `CancelReason`
+- `Failure(error)` with `HandMeasureError`
 
-After placing the model, sync Gradle and rebuild the app.
+## Notes
+- Requires CAMERA permission at runtime.
+- Reference object: ID?1 card (85.60 x 53.98 mm) by default for scale.
+- Runs CameraX + MediaPipe Hand Landmarker (live stream) + OpenCV card detection on Y-plane.
+- JPEG is encoded only for captured frames; no network upload in SDK.
+
+## Tests
+- JVM unit tests are expected for AutoCaptureStateMachine and SizeAggregator (add under `handmeasure-sdk/src/test`).

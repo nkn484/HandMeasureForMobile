@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "HandQualityGateAutoCapture"
 include(":app")
+include(":handmeasure-sdk")
