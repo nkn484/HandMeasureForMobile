@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.resources.handqualitygate.ringsize.MeasurementFailReason
 
 class SizeAggregatorTest {
     @Test
@@ -23,8 +24,8 @@ class SizeAggregatorTest {
 
         val result = aggregator.aggregate(measurements)
         assertEquals("N/A", result.ringSizeSuggestion)
-        assertTrue(result.reasonsFail.contains("CARD_NOT_FOUND"))
-        assertTrue(result.reasonsFail.contains("HAND_NOT_STABLE"))
+        assertTrue(result.reasonsFail.contains(MeasurementFailReason.CARD_NOT_FOUND.name))
+        assertTrue(!result.reasonsFail.contains(MeasurementFailReason.HAND_LOW_CONF.name))
         assertEquals(0.1f, result.confidence, 0.0001f)
     }
 

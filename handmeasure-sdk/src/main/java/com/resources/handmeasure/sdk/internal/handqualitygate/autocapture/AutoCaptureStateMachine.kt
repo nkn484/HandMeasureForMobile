@@ -44,7 +44,17 @@ class AutoCaptureStateMachine(
     private val capturedFrames = ArrayList<CapturedFrame>(64)
 
     fun update(timestampMs: Long, observation: HandObservation, quality: QualityResult): Boolean {
-        val roiCenter = PointF(observation.roiPixel.exactCenterX(), observation.roiPixel.exactCenterY())
+        val hasHand = observation.hasHand
+        val roiCenter =
+            if (hasHand) {
+                PointF(observation.roiPixel.exactCenterX(), observation.roiPixel.exactCenterY())
+            } else {
+                null
+            }
+        if (!hasHand) {
+            // Reset jitter baseline while hand is missing to avoid false jitter spikes on re-acquisition.
+            lastRoiCenter = null
+        }
 
         if (state == AutoCaptureState.COOLDOWN) {
             if (timestampMs >= cooldownUntilMs) {
@@ -57,12 +67,13 @@ class AutoCaptureStateMachine(
             return false
         }
 
-        val hasHand = observation.hasHand
         val ready = hasHand && quality.Q_total >= config.readyThreshold && quality.reasonsFail.isEmpty()
         val stable = hasHand && quality.Q_total >= config.stableThreshold && quality.reasonsFail.isEmpty()
 
-        val jitterOk = isJitterOk(roiCenter)
-        lastRoiCenter = roiCenter
+        val jitterOk = roiCenter?.let { isJitterOk(it) } ?: true
+        if (roiCenter != null) {
+            lastRoiCenter = roiCenter
+        }
 
         when (state) {
             AutoCaptureState.SEARCH -> {

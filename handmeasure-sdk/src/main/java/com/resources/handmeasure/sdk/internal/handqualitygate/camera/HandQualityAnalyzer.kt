@@ -11,6 +11,7 @@ import com.resources.handmeasure.sdk.internal.quality.LumaRoiExtractor
 import com.resources.handmeasure.sdk.internal.quality.QualityGateConfig
 import com.resources.handmeasure.sdk.internal.quality.QualityGateEngine
 import com.resources.handmeasure.sdk.internal.quality.QualityResult
+import com.resources.handmeasure.sdk.internal.quality.QualityFailReason
 import com.resources.handmeasure.sdk.internal.ringsize.CardDetection
 import com.resources.handmeasure.sdk.internal.ringsize.CardDetector
 import com.resources.handmeasure.sdk.internal.ringsize.FramePacket
@@ -93,9 +94,9 @@ class HandQualityAnalyzer(
         val card = lastCardDetection
         val reasons = quality.reasonsFail.toMutableList()
         if (card == null) {
-            reasons += "CARD_NOT_FOUND"
+            reasons += QualityFailReason.CARD_NOT_FOUND.name
         } else if (card.confidence < config.cardMinConfidence) {
-            reasons += "CARD_LOW_CONF"
+            reasons += QualityFailReason.CARD_LOW_CONF.name
         }
 
         if (reasons.size == quality.reasonsFail.size) return quality

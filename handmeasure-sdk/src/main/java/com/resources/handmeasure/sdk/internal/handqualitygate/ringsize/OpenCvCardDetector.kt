@@ -54,7 +54,9 @@ class OpenCvCardDetector(
             matsToRelease += edges
             Imgproc.Canny(blurred, edges, 50.0, 150.0)
 
-            Imgproc.findContours(edges, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+            val hierarchy = Mat()
+            matsToRelease += hierarchy
+            Imgproc.findContours(edges, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
 
             val matLocal = mat ?: return null
             val frameArea = (matLocal.width() * matLocal.height()).toDouble()
@@ -128,12 +130,10 @@ class OpenCvCardDetector(
 
     private fun orderCorners(points: Array<Point>): List<PointF> {
         val pts = points.map { PointF(it.x.toFloat(), it.y.toFloat()) }
-        val sum = pts.map { it.x + it.y }
-        val diff = pts.map { it.x - it.y }
-        val topLeft = pts[sum.indexOf(sum.minOrNull()!!)]
-        val bottomRight = pts[sum.indexOf(sum.maxOrNull()!!)]
-        val topRight = pts[diff.indexOf(diff.maxOrNull()!!)]
-        val bottomLeft = pts[diff.indexOf(diff.minOrNull()!!)]
+        val topLeft = pts.minByOrNull { it.x + it.y }!!
+        val bottomRight = pts.maxByOrNull { it.x + it.y }!!
+        val topRight = pts.maxByOrNull { it.x - it.y }!!
+        val bottomLeft = pts.minByOrNull { it.x - it.y }!!
         return listOf(topLeft, topRight, bottomRight, bottomLeft)
     }
 

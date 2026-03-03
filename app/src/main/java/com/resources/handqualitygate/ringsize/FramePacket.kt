@@ -9,10 +9,15 @@ data class FramePacket(
     val jpegBytes: ByteArray? = null,
     val imageProxy: ImageProxy? = null,
 ) {
+    @Volatile
+    private var cachedJpeg: ByteArray? = null
+
     fun toJpegBytes(): ByteArray? {
         jpegBytes?.let { return it }
+        cachedJpeg?.let { return it }
         val proxy = imageProxy ?: return null
-        return ImageUtils.imageProxyToJpeg(proxy, quality = 90)
+        val encoded = ImageUtils.imageProxyToJpeg(proxy, quality = 90)
+        cachedJpeg = encoded
+        return encoded
     }
 }
-

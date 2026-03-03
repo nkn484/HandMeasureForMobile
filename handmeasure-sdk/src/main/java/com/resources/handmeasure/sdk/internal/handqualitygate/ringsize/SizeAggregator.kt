@@ -8,7 +8,7 @@ data class SizeResult(
     val ringSizeSuggestion: String,
     val confidence: Float,
     val reasonsFail: List<String>,
-    val debugMetrics: Map<String, Any>,
+    val debugMetrics: Map<String, Double>,
 )
 
 class SizeAggregator(
@@ -20,22 +20,25 @@ class SizeAggregator(
     fun aggregate(
         measurements: List<FrameMeasurement>,
     ): SizeResult {
-        val reasons = mutableListOf<String>()
+        val reasons = mutableListOf<MeasurementFailReason>()
         val valid =
             measurements.filter {
                 it.cardConfidence >= cardMinConfidence && it.handConfidence >= handMinConfidence
             }
 
         if (valid.size < minValidFrames) {
-            reasons += "CARD_NOT_FOUND"
-            reasons += "HAND_NOT_STABLE"
+            val cardOk = measurements.any { it.cardConfidence >= cardMinConfidence }
+            val handOk = measurements.any { it.handConfidence >= handMinConfidence }
+            if (!cardOk) reasons += MeasurementFailReason.CARD_NOT_FOUND
+            if (!handOk) reasons += MeasurementFailReason.HAND_LOW_CONF
+            if (cardOk && handOk) reasons += MeasurementFailReason.NOT_ENOUGH_VALID_FRAMES
             return SizeResult(
                 mmPerPx = 0.0,
                 fingerWidthMm = 0.0,
                 ringSizeSuggestion = "N/A",
                 confidence = 0.1f,
-                reasonsFail = reasons,
-                debugMetrics = mapOf("validFrames" to valid.size),
+                reasonsFail = reasons.asReasonStrings(),
+                debugMetrics = mapOf("validFrames" to valid.size.toDouble()),
             )
         }
 
@@ -46,7 +49,7 @@ class SizeAggregator(
         val stddev = sqrt(variance)
 
         if (valid.size < stableFrames) {
-            reasons += "NOT_ENOUGH_STABLE_FRAMES"
+            reasons += MeasurementFailReason.NOT_ENOUGH_STABLE_FRAMES
         }
 
         val confCount = (valid.size / (stableFrames.toFloat())).coerceIn(0f, 1f)
@@ -65,10 +68,10 @@ class SizeAggregator(
             fingerWidthMm = median,
             ringSizeSuggestion = ringSize,
             confidence = confidence,
-            reasonsFail = reasons,
+            reasonsFail = reasons.asReasonStrings(),
             debugMetrics =
                 mapOf(
-                    "validFrames" to valid.size,
+                    "validFrames" to valid.size.toDouble(),
                     "widthStdDev" to stddev,
                     "medianWidthMm" to median,
                 ),

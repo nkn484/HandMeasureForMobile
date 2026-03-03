@@ -64,6 +64,8 @@ import com.resources.handmeasure.sdk.api.RingSizeRecommendation
 import com.resources.handmeasure.sdk.api.RingSizeSystem
 import com.resources.handmeasure.sdk.internal.autocapture.AutoCaptureState
 import com.resources.handmeasure.sdk.internal.camera.CameraController
+import com.resources.handmeasure.sdk.internal.quality.QualityFailReason
+import com.resources.handmeasure.sdk.internal.ringsize.MeasurementFailReason
 import com.resources.handmeasure.sdk.internal.ringsize.SizeResult
 import com.resources.handmeasure.sdk.internal.ui.MainViewModel
 import com.resources.handmeasure.sdk.internal.ui.QualityUiState
@@ -225,11 +227,12 @@ private fun mapResult(size: SizeResult, request: HandMeasureRequest): Measuremen
     val warnings = size.reasonsFail.mapNotNull { mapWarning(it) }
     val debug =
         if (request.config.debugEnabled) {
+            val validFrames = size.debugMetrics["validFrames"] ?: 0.0
             MeasurementDebug(
-                selectedFrameCount = size.debugMetrics["validFrames"] as? Int ?: 0,
-                usedFrameCount = size.debugMetrics["validFrames"] as? Int ?: 0,
-                meanWidthMm = size.debugMetrics["medianWidthMm"] as? Double ?: size.fingerWidthMm,
-                stdWidthMm = size.debugMetrics["widthStdDev"] as? Double ?: 0.0,
+                selectedFrameCount = validFrames.toInt(),
+                usedFrameCount = validFrames.toInt(),
+                meanWidthMm = size.debugMetrics["medianWidthMm"] ?: size.fingerWidthMm,
+                stdWidthMm = size.debugMetrics["widthStdDev"] ?: 0.0,
                 meanMmPerPx = size.mmPerPx,
                 reasonsFail = size.reasonsFail,
                 qualityScoreSummary = emptyMap(),
@@ -249,13 +252,15 @@ private fun mapResult(size: SizeResult, request: HandMeasureRequest): Measuremen
 
 private fun mapWarning(reason: String): MeasurementWarning? =
     when (reason) {
-        "CARD_NOT_FOUND", "ROI_BAD" -> MeasurementWarning.REFERENCE_NOT_FOUND
-        "CARD_LOW_CONF" -> MeasurementWarning.REFERENCE_LOW_CONFIDENCE
-        "NO_HAND" -> MeasurementWarning.HAND_NOT_FOUND
-        "LOW_CONF" -> MeasurementWarning.HAND_LOW_CONFIDENCE
-        "MOTION_HIGH" -> MeasurementWarning.HIGH_MOTION
-        "BLUR_LOW" -> MeasurementWarning.BLURRY
-        "NOT_ENOUGH_STABLE_FRAMES" -> MeasurementWarning.NOT_ENOUGH_VALID_FRAMES
+        QualityFailReason.CARD_NOT_FOUND.name, QualityFailReason.ROI_BAD.name -> MeasurementWarning.REFERENCE_NOT_FOUND
+        QualityFailReason.CARD_LOW_CONF.name -> MeasurementWarning.REFERENCE_LOW_CONFIDENCE
+        QualityFailReason.NO_HAND.name -> MeasurementWarning.HAND_NOT_FOUND
+        QualityFailReason.LOW_CONF.name -> MeasurementWarning.HAND_LOW_CONFIDENCE
+        QualityFailReason.MOTION_HIGH.name -> MeasurementWarning.HIGH_MOTION
+        QualityFailReason.BLUR_LOW.name -> MeasurementWarning.BLURRY
+        MeasurementFailReason.NOT_ENOUGH_STABLE_FRAMES.name,
+        MeasurementFailReason.NOT_ENOUGH_VALID_FRAMES.name,
+        -> MeasurementWarning.NOT_ENOUGH_VALID_FRAMES
         else -> null
     }
 

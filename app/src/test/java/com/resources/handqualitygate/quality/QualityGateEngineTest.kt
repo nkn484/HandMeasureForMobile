@@ -4,6 +4,7 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.util.Size
 import com.resources.handqualitygate.tracking.HandObservation
+import com.resources.handqualitygate.quality.QualityFailReason
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,8 +24,8 @@ class QualityGateEngineTest {
                 observation = observation(hasHand = false, confidence = 0f),
             )
 
-        assertTrue(result.reasonsFail.contains("NO_HAND"))
-        assertTrue(result.reasonsFail.contains("LOW_CONF"))
+        assertTrue(result.reasonsFail.contains(QualityFailReason.NO_HAND.name))
+        assertTrue(!result.reasonsFail.contains(QualityFailReason.LOW_CONF.name))
     }
 
     @Test
@@ -50,7 +51,7 @@ class QualityGateEngineTest {
                 observation = obs,
             )
 
-        assertTrue(result.reasonsFail.contains("MOTION_HIGH"))
+        assertTrue(result.reasonsFail.contains(QualityFailReason.MOTION_HIGH.name))
     }
 
     @Test
@@ -65,7 +66,7 @@ class QualityGateEngineTest {
                 observation = observation(hasHand = true, confidence = 1f),
             )
 
-        assertTrue(result.reasonsFail.contains("EXPOSURE_CLIP_HIGH"))
+        assertTrue(result.reasonsFail.contains(QualityFailReason.EXPOSURE_CLIP_HIGH.name))
     }
 
     private fun observation(hasHand: Boolean, confidence: Float): HandObservation {

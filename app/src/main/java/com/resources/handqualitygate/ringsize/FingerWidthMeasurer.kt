@@ -35,54 +35,53 @@ class FingerWidthMeasurer(
         val jpeg = frame.toJpegBytes() ?: return null
         val byteMat = MatOfByte(*jpeg)
         val gray = Imgcodecs.imdecode(byteMat, Imgcodecs.IMREAD_GRAYSCALE)
-        if (gray.empty()) {
-            byteMat.release()
-            return null
-        }
-
-        val mcp = hand.landmarks2dPx[13]
-        val pip = hand.landmarks2dPx[14]
-        val ringPoint =
-            PointF(
-                mcp.x + (pip.x - mcp.x) * 0.4f,
-                mcp.y + (pip.y - mcp.y) * 0.4f,
-            )
-
-        val axis = PointF(pip.x - mcp.x, pip.y - mcp.y)
-        val len = hypot(axis.x.toDouble(), axis.y.toDouble())
-        if (len == 0.0) return null
-        val dir = PointF((axis.x / len).toFloat(), (axis.y / len).toFloat())
-        val perp = PointF(-dir.y, dir.x)
-
-        val cx = ringPoint.x.toInt()
-        val cy = ringPoint.y.toInt()
-        val roi = Rect(
-            (cx - roiRadiusPx).coerceAtLeast(0),
-            (cy - roiRadiusPx).coerceAtLeast(0),
-            (roiRadiusPx * 2).coerceAtMost(gray.cols() - (cx - roiRadiusPx).coerceAtLeast(0)),
-            (roiRadiusPx * 2).coerceAtMost(gray.rows() - (cy - roiRadiusPx).coerceAtLeast(0)),
-        )
-        if (roi.width <= 0 || roi.height <= 0) {
-            gray.release()
-            byteMat.release()
-            return null
-        }
-
-        val roiMat = Mat(gray, roi)
-        val gradX = Mat()
-        val gradY = Mat()
-        val gradMag = Mat()
-        val gradAbs = Mat()
+        var roiMat: Mat? = null
+        var gradX: Mat? = null
+        var gradY: Mat? = null
+        var gradMag: Mat? = null
+        var gradAbs: Mat? = null
 
         return try {
-            Imgproc.Sobel(roiMat, gradX, CvType.CV_32F, 1, 0)
-            Imgproc.Sobel(roiMat, gradY, CvType.CV_32F, 0, 1)
-            Core.magnitude(gradX, gradY, gradMag)
-            Core.convertScaleAbs(gradMag, gradAbs)
+            if (gray.empty()) return null
+
+            val mcp = hand.landmarks2dPx[13]
+            val pip = hand.landmarks2dPx[14]
+            val ringPoint =
+                PointF(
+                    mcp.x + (pip.x - mcp.x) * 0.4f,
+                    mcp.y + (pip.y - mcp.y) * 0.4f,
+                )
+
+            val axis = PointF(pip.x - mcp.x, pip.y - mcp.y)
+            val len = hypot(axis.x.toDouble(), axis.y.toDouble())
+            if (len == 0.0) return null
+            val dir = PointF((axis.x / len).toFloat(), (axis.y / len).toFloat())
+            val perp = PointF(-dir.y, dir.x)
+
+            val cx = ringPoint.x.toInt()
+            val cy = ringPoint.y.toInt()
+            val roi = Rect(
+                (cx - roiRadiusPx).coerceAtLeast(0),
+                (cy - roiRadiusPx).coerceAtLeast(0),
+                (roiRadiusPx * 2).coerceAtMost(gray.cols() - (cx - roiRadiusPx).coerceAtLeast(0)),
+                (roiRadiusPx * 2).coerceAtMost(gray.rows() - (cy - roiRadiusPx).coerceAtLeast(0)),
+            )
+            if (roi.width <= 0 || roi.height <= 0) return null
+
+            val roiMatLocal = Mat(gray, roi).also { roiMat = it }
+            val gradXLocal = Mat().also { gradX = it }
+            val gradYLocal = Mat().also { gradY = it }
+            val gradMagLocal = Mat().also { gradMag = it }
+            val gradAbsLocal = Mat().also { gradAbs = it }
+
+            Imgproc.Sobel(roiMatLocal, gradXLocal, CvType.CV_32F, 1, 0)
+            Imgproc.Sobel(roiMatLocal, gradYLocal, CvType.CV_32F, 0, 1)
+            Core.magnitude(gradXLocal, gradYLocal, gradMagLocal)
+            Core.convertScaleAbs(gradMagLocal, gradAbsLocal)
 
             val center = PointF((ringPoint.x - roi.x), (ringPoint.y - roi.y))
-            val left = scanEdge(gradAbs, center, perp, -1)
-            val right = scanEdge(gradAbs, center, perp, 1)
+            val left = scanEdge(gradAbsLocal, center, perp, -1)
+            val right = scanEdge(gradAbsLocal, center, perp, 1)
 
             if (left == null || right == null) return null
             val leftAbs = PointF(left.x + roi.x, left.y + roi.y)
@@ -108,11 +107,11 @@ class FingerWidthMeasurer(
                 rightEdgePx = rightAbs,
             )
         } finally {
-            gradAbs.release()
-            gradMag.release()
-            gradY.release()
-            gradX.release()
-            roiMat.release()
+            gradAbs?.release()
+            gradMag?.release()
+            gradY?.release()
+            gradX?.release()
+            roiMat?.release()
             gray.release()
             byteMat.release()
         }

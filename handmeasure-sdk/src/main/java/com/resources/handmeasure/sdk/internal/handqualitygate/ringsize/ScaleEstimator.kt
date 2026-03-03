@@ -28,28 +28,40 @@ class ScaleEstimator(
         return ScaleEstimate(mmPerPx = mmPerPx, rectifiedWidthPx = widthPx, rectifiedHeightPx = heightPx)
     }
 
+    /**
+     * Returns a new Mat containing the rectified card. Caller must release the returned Mat.
+     */
     fun rectifyCard(
         srcGray: Mat,
         corners: List<PointF>,
         outWidth: Int,
         outHeight: Int,
     ): Mat {
-        val src = MatOfPoint2f(
-            Point(corners[0].x.toDouble(), corners[0].y.toDouble()),
-            Point(corners[1].x.toDouble(), corners[1].y.toDouble()),
-            Point(corners[2].x.toDouble(), corners[2].y.toDouble()),
-            Point(corners[3].x.toDouble(), corners[3].y.toDouble()),
-        )
-        val dst = MatOfPoint2f(
-            Point(0.0, 0.0),
-            Point(outWidth.toDouble(), 0.0),
-            Point(outWidth.toDouble(), outHeight.toDouble()),
-            Point(0.0, outHeight.toDouble()),
-        )
-        val warp = Imgproc.getPerspectiveTransform(src, dst)
-        val out = Mat()
-        Imgproc.warpPerspective(srcGray, out, warp, Size(outWidth.toDouble(), outHeight.toDouble()))
-        return out
+        val src =
+            MatOfPoint2f(
+                Point(corners[0].x.toDouble(), corners[0].y.toDouble()),
+                Point(corners[1].x.toDouble(), corners[1].y.toDouble()),
+                Point(corners[2].x.toDouble(), corners[2].y.toDouble()),
+                Point(corners[3].x.toDouble(), corners[3].y.toDouble()),
+            )
+        val dst =
+            MatOfPoint2f(
+                Point(0.0, 0.0),
+                Point(outWidth.toDouble(), 0.0),
+                Point(outWidth.toDouble(), outHeight.toDouble()),
+                Point(0.0, outHeight.toDouble()),
+            )
+        var warp: Mat? = null
+        return try {
+            warp = Imgproc.getPerspectiveTransform(src, dst)
+            Mat().also { out ->
+                Imgproc.warpPerspective(srcGray, out, warp, Size(outWidth.toDouble(), outHeight.toDouble()))
+            }
+        } finally {
+            warp?.release()
+            dst.release()
+            src.release()
+        }
     }
 
     private fun distance(a: PointF, b: PointF): Double {

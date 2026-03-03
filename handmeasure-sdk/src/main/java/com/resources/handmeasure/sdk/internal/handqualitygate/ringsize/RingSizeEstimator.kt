@@ -11,27 +11,27 @@ class RingSizeEstimator(
 ) {
     fun estimateSize(capturedFrames: List<FramePacket>): SizeResult {
         val measurements = mutableListOf<FrameMeasurement>()
-        val debugReasons = mutableListOf<String>()
+        val debugReasons = mutableListOf<MeasurementFailReason>()
 
         for (frame in capturedFrames) {
             val card = cardDetector.detect(frame)
             if (card == null) {
-                debugReasons += "CARD_NOT_FOUND"
+                debugReasons += MeasurementFailReason.CARD_NOT_FOUND
                 continue
             }
             val scale = scaleEstimator.estimate(card)
             if (scale == null) {
-                debugReasons += "SCALE_FAIL"
+                debugReasons += MeasurementFailReason.SCALE_FAIL
                 continue
             }
             val hand = handEngine.detect(frame)
             if (hand == null) {
-                debugReasons += "HAND_NOT_FOUND"
+                debugReasons += MeasurementFailReason.HAND_NOT_FOUND
                 continue
             }
             val widthResult = fingerMeasurer.measure(frame, hand, scale.mmPerPx)
             if (widthResult == null) {
-                debugReasons += "WIDTH_FAIL"
+                debugReasons += MeasurementFailReason.WIDTH_FAIL
                 continue
             }
 
@@ -48,10 +48,8 @@ class RingSizeEstimator(
         }
 
         val result = aggregator.aggregate(measurements)
-        if (result.reasonsFail.isEmpty() && debugReasons.isNotEmpty()) {
-            return result.copy(reasonsFail = debugReasons.distinct())
-        }
-        return result
+        val merged = result.reasonsFail.mergeDistinct(debugReasons.asReasonStrings())
+        return result.copy(reasonsFail = merged)
     }
 
     companion object {
