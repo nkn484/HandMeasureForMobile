@@ -46,7 +46,8 @@ launcher.launch(HandMeasureRequest())
 
 ## Notes
 - Requires CAMERA permission at runtime.
-- Reference object: ID?1 card (85.60 x 53.98 mm) by default for scale.
+- `CancelReason.UNKNOWN` can occur if the measurement Activity is terminated without returning an outcome (e.g., process death).
+- Reference object: ID-1 card (85.60 x 53.98 mm) by default for scale.
 - Runs CameraX + MediaPipe Hand Landmarker (live stream) + OpenCV card detection on Y-plane.
 - JPEG is encoded only for captured frames; no network upload in SDK.
 

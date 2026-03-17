@@ -24,7 +24,13 @@ class ScaleEstimator(
         val heightPx = (distance(ordered[0], ordered[3]) + distance(ordered[1], ordered[2])) / 2.0
         if (widthPx <= 1.0 || heightPx <= 1.0) return null
 
-        val mmPerPx = ((referenceWidthMm / widthPx) + (referenceHeightMm / heightPx)) / 2.0
+        // Accept portrait or landscape cards: map the longer pixel side to the longer real-world side.
+        val longPx = maxOf(widthPx, heightPx)
+        val shortPx = minOf(widthPx, heightPx)
+        val longMm = maxOf(referenceWidthMm, referenceHeightMm)
+        val shortMm = minOf(referenceWidthMm, referenceHeightMm)
+
+        val mmPerPx = ((longMm / longPx) + (shortMm / shortPx)) / 2.0
         return ScaleEstimate(mmPerPx = mmPerPx, rectifiedWidthPx = widthPx, rectifiedHeightPx = heightPx)
     }
 

@@ -11,7 +11,7 @@ import kotlin.math.min
 
 class MediaPipeHandTracker(
     private val handEngine: HandLandmarkerEngine,
-    private val bboxPaddingRatio: Float = 0.18f,
+    private val bboxPaddingRatio: Float = 0.24f,
 ) : HandTracker {
     override fun observe(image: ImageProxy): HandObservation {
         val timestampMs = TimeUnit.NANOSECONDS.toMillis(image.imageInfo.timestamp)

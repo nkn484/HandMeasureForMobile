@@ -21,35 +21,40 @@ class CameraController(private val context: Context) {
         lifecycleOwner: LifecycleOwner,
         previewView: PreviewView,
         analyzer: ImageAnalysis.Analyzer,
+        onError: (Throwable) -> Unit,
     ) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener(
             {
-                val provider = cameraProviderFuture.get()
-                cameraProvider = provider
+                try {
+                    val provider = cameraProviderFuture.get()
+                    cameraProvider = provider
 
-                val preview =
-                    Preview.Builder()
-                        .build()
-                        .also { it.setSurfaceProvider(previewView.surfaceProvider) }
+                    val preview =
+                        Preview.Builder()
+                            .build()
+                            .also { it.setSurfaceProvider(previewView.surfaceProvider) }
 
-                val analysis =
-                    ImageAnalysis.Builder()
-                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                        .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-                        .build()
-                analysis.setAnalyzer(analysisExecutor, analyzer)
+                    val analysis =
+                        ImageAnalysis.Builder()
+                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                            .build()
+                    analysis.setAnalyzer(analysisExecutor, analyzer)
 
-                previewUseCase = preview
-                analysisUseCase = analysis
+                    previewUseCase = preview
+                    analysisUseCase = analysis
 
-                provider.unbindAll()
-                provider.bindToLifecycle(
-                    lifecycleOwner,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
-                    preview,
-                    analysis,
-                )
+                    provider.unbindAll()
+                    provider.bindToLifecycle(
+                        lifecycleOwner,
+                        CameraSelector.DEFAULT_BACK_CAMERA,
+                        preview,
+                        analysis,
+                    )
+                } catch (t: Throwable) {
+                    onError(t)
+                }
             },
             ContextCompat.getMainExecutor(context),
         )

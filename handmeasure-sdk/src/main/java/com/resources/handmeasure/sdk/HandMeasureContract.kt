@@ -16,10 +16,11 @@ class HandMeasureContract : ActivityResultContract<HandMeasureRequest, HandMeasu
 
     override fun parseResult(resultCode: Int, intent: Intent?): HandMeasureOutcome {
         val outcome = intent?.getParcelableExtra<HandMeasureOutcome>(EXTRA_OUTCOME)
-        if (resultCode != Activity.RESULT_OK || outcome == null) {
-            return HandMeasureOutcome.Cancelled(com.resources.handmeasure.sdk.api.CancelReason.USER)
-        }
-        return outcome
+        if (resultCode == Activity.RESULT_OK && outcome != null) return outcome
+
+        // If the Activity didn't return a structured outcome (crash/process death/back press without setResult),
+        // do NOT mislabel it as a user-cancel.
+        return outcome ?: HandMeasureOutcome.Cancelled(com.resources.handmeasure.sdk.api.CancelReason.UNKNOWN)
     }
 
     companion object {

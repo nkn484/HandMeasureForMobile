@@ -24,7 +24,7 @@ class CsvMetricsLogger(
             val dir = File(context.filesDir, "logs").apply { mkdirs() }
             file = File(dir, "quality_metrics_${System.currentTimeMillis()}.csv")
             writer = BufferedWriter(FileWriter(file, false))
-            writer.write("ts_ms,state,Q_total,q_blur,q_motion,q_exposure,q_roi,q_conf,reasons\n")
+            writer.write("ts_ms,state,Q_total,q_blur,q_motion,q_exposure,q_roi,q_conf,card_conf,reasons\n")
             writer.flush()
         }
     }
@@ -32,10 +32,11 @@ class CsvMetricsLogger(
     fun log(timestampMs: Long, state: AutoCaptureState, q: QualityResult) {
         val w = writer ?: return
         val reasons = q.reasonsFail.joinToString("|")
+        val cardConf = q.cardConfidence ?: -1f
         val line =
             String.format(
                 Locale.US,
-                "%d,%s,%.4f,%.3f,%.3f,%.3f,%.3f,%.3f,%s\n",
+                "%d,%s,%.4f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%s\n",
                 timestampMs,
                 state.name,
                 q.Q_total,
@@ -44,6 +45,7 @@ class CsvMetricsLogger(
                 q.q_exposure,
                 q.q_roi,
                 q.q_conf,
+                cardConf,
                 reasons,
             )
         w.write(line)

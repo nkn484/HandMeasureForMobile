@@ -16,11 +16,12 @@ import kotlin.math.max
 class MediaPipeHandLandmarkerEngine(
     context: Context,
     private val modelAssetPath: String = "hand_landmarker.task",
-    private val minHandDetectionConfidence: Float = 0.5f,
-    private val minHandPresenceConfidence: Float = 0.5f,
-    private val minTrackingConfidence: Float = 0.5f,
+    private val minHandDetectionConfidence: Float = 0.35f,
+    private val minHandPresenceConfidence: Float = 0.35f,
+    private val minTrackingConfidence: Float = 0.35f,
     private val numHands: Int = 1,
     private val maxStaleMs: Long = 350,
+    private val maxBitmapDim: Int = 512,
 ) : HandLandmarkerEngine, AutoCloseable {
     private val appContext = context.applicationContext
     private val handLandmarkerImage: HandLandmarker? = buildLandmarker(RunningMode.IMAGE)
@@ -34,7 +35,7 @@ class MediaPipeHandLandmarkerEngine(
     override fun detect(frame: FramePacket): HandDetection? {
         val landmarker = handLandmarkerImage ?: return null
         val jpeg = frame.toJpegBytes() ?: return null
-        val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return null
+        val bitmap = decodeJpeg(jpeg, maxBitmapDim) ?: return null
         val argbBitmap = ensureArgb(bitmap)
 
         return try {
@@ -55,7 +56,7 @@ class MediaPipeHandLandmarkerEngine(
     override fun detectLive(frame: FramePacket, timestampMs: Long): HandDetection? {
         val landmarker = handLandmarkerLive ?: return detect(frame)
         val jpeg = frame.toJpegBytes() ?: return getLatestDetection()
-        val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return getLatestDetection()
+        val bitmap = decodeJpeg(jpeg, maxBitmapDim) ?: return getLatestDetection()
         val argbBitmap = ensureArgb(bitmap)
         if (argbBitmap !== bitmap) {
             bitmap.recycle()
@@ -65,13 +66,13 @@ class MediaPipeHandLandmarkerEngine(
         lastFrameHeight = argbBitmap.height
 
         return try {
+            // Avoid building up a backlog: if too many frames are pending, drop this frame.
+            if (pendingBitmaps.size >= 4) {
+                argbBitmap.recycle()
+                return latestFreshDetection(timestampMs)
+            }
             val mpImage = BitmapImageBuilder(argbBitmap).build()
             pendingBitmaps[timestampMs] = argbBitmap
-            if (pendingBitmaps.size > 4) {
-                pendingBitmaps.values.forEach { it.recycle() }
-                pendingBitmaps.clear()
-                pendingBitmaps[timestampMs] = argbBitmap
-            }
             landmarker.detectAsync(mpImage, timestampMs)
             latestFreshDetection(timestampMs)
         } catch (e: Exception) {
@@ -125,9 +126,11 @@ class MediaPipeHandLandmarkerEngine(
                     }
                     if (ts != null) {
                         pendingBitmaps.remove(ts)?.recycle()
-                    } else if (pendingBitmaps.size > 2) {
-                        pendingBitmaps.values.forEach { it.recycle() }
-                        pendingBitmaps.clear()
+                    } else if (pendingBitmaps.size > 6) {
+                        val oldest = pendingBitmaps.keys.minOrNull()
+                        if (oldest != null) {
+                            pendingBitmaps.remove(oldest)?.recycle()
+                        }
                     }
                 }
                 builder.setErrorListener { error ->
@@ -173,11 +176,18 @@ class MediaPipeHandLandmarkerEngine(
                 (presence ?: visibility ?: score).coerceIn(0f, 1f)
             }
 
+        val overallConfidence =
+            if (confidences.isEmpty()) {
+                score.coerceIn(0f, 1f)
+            } else {
+                confidences.average().toFloat().coerceIn(0f, 1f)
+            }
+
         return HandDetection(
             landmarks2dPx = points,
             landmarkConfidences = confidences,
             handedness = label,
-            confidence = score.coerceIn(0f, 1f),
+            confidence = overallConfidence,
         )
     }
 
@@ -211,6 +221,31 @@ class MediaPipeHandLandmarkerEngine(
         } else {
             bitmap.copy(Bitmap.Config.ARGB_8888, false)
         }
+    }
+
+    private fun decodeJpeg(jpeg: ByteArray, maxDim: Int): Bitmap? {
+        if (jpeg.isEmpty()) return null
+        if (maxDim <= 0) return BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+
+        val bounds =
+            BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+        BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
+        val w = bounds.outWidth
+        val h = bounds.outHeight
+        if (w <= 0 || h <= 0) return null
+
+        var sample = 1
+        val maxSide = max(w, h)
+        while (maxSide / sample > maxDim) sample *= 2
+
+        val opts =
+            BitmapFactory.Options().apply {
+                inSampleSize = sample.coerceAtLeast(1)
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+        return BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, opts)
     }
 
     private fun callMethod(target: Any?, name: String): Any? {

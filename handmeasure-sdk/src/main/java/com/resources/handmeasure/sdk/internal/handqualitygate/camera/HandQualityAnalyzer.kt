@@ -1,6 +1,7 @@
 package com.resources.handmeasure.sdk.internal.camera
 
 import android.os.SystemClock
+import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.resources.handmeasure.sdk.internal.autocapture.AutoCaptureState
@@ -40,38 +41,42 @@ class HandQualityAnalyzer(
         }
         lastAnalyzeAtMs = nowMs
 
-        val tsMs = TimeUnit.NANOSECONDS.toMillis(image.imageInfo.timestamp)
+        try {
+            val tsMs = TimeUnit.NANOSECONDS.toMillis(image.imageInfo.timestamp)
 
-        val observation = tracker.observe(image)
-        val lumaRoi =
-            LumaRoiExtractor.downsampleToSquare(
-                image = image,
-                roiPx = observation.roiPixel,
-                outSize = config.downsampleSize,
-            )
+            val observation = tracker.observe(image)
+            val lumaRoi =
+                LumaRoiExtractor.downsampleToSquare(
+                    image = image,
+                    roiPx = observation.roiPixel,
+                    outSize = config.downsampleSize,
+                )
 
-        val quality =
-            engine.evaluate(
-                timestampMs = tsMs,
-                lumaRoi = lumaRoi,
-                roiRectPx = observation.roiPixel,
-                frameSize = android.util.Size(image.width, image.height),
-                observation = observation,
-            )
+            val quality =
+                engine.evaluate(
+                    timestampMs = tsMs,
+                    lumaRoi = lumaRoi,
+                    roiRectPx = observation.roiPixel,
+                    frameSize = android.util.Size(image.width, image.height),
+                    observation = observation,
+                )
 
-        val gatedQuality = applyCardGate(nowMs, tsMs, image, quality)
-        val shouldCapture = stateMachine.update(tsMs, observation, gatedQuality)
-        if (shouldCapture) {
-            val jpeg = ImageUtils.imageProxyToJpeg(image, quality = 90)
-            stateMachine.addCapturedFrame(
-                CapturedFrame(timestampMs = tsMs, score = gatedQuality.Q_total, jpegBytes = jpeg)
-            )
+            val gatedQuality = applyCardGate(nowMs, tsMs, image, quality)
+            val shouldCapture = stateMachine.update(tsMs, observation, gatedQuality)
+            if (shouldCapture) {
+                val jpeg = ImageUtils.imageProxyToJpeg(image, quality = 90)
+                stateMachine.addCapturedFrame(
+                    CapturedFrame(timestampMs = tsMs, score = gatedQuality.Q_total, jpegBytes = jpeg),
+                )
+            }
+
+            csvLogger?.log(tsMs, stateMachine.state, gatedQuality)
+            onMetrics(gatedQuality)
+        } catch (t: Throwable) {
+            Log.w("HandQualityAnalyzer", "Analyze failed: ${t.message}")
+        } finally {
+            image.close()
         }
-
-        csvLogger?.log(tsMs, stateMachine.state, gatedQuality)
-        onMetrics(gatedQuality)
-
-        image.close()
     }
 
     private fun applyCardGate(
@@ -83,12 +88,23 @@ class HandQualityAnalyzer(
         if (!config.requireCardForCapture) return quality
         if (stateMachine.state == AutoCaptureState.COOLDOWN) return quality
 
+        // Save CPU: don't run the expensive OpenCV card detection until a hand is reliably present.
+        if (quality.reasonsFail.contains(QualityFailReason.NO_HAND.name)) {
+            return quality
+        }
+
         val needRefresh =
             lastCardDetection == null || nowMs - lastCardAnalyzeAtMs >= config.cardAnalysisIntervalMs
         if (needRefresh) {
             lastCardAnalyzeAtMs = nowMs
             val frame = FramePacket(timestampMs = timestampMs, qualityScore = quality.Q_total, imageProxy = image)
-            lastCardDetection = cardDetector.detect(frame)
+            lastCardDetection =
+                try {
+                    cardDetector.detect(frame)
+                } catch (t: Throwable) {
+                    Log.w("HandQualityAnalyzer", "Card detection failed: ${t.message}")
+                    null
+                }
         }
 
         val card = lastCardDetection
@@ -99,7 +115,10 @@ class HandQualityAnalyzer(
             reasons += QualityFailReason.CARD_LOW_CONF.name
         }
 
-        if (reasons.size == quality.reasonsFail.size) return quality
-        return quality.copy(reasonsFail = reasons.distinct())
+        val nextCardConfidence = card?.confidence
+        val nextReasons = reasons.distinct()
+
+        if (nextReasons == quality.reasonsFail && nextCardConfidence == quality.cardConfidence) return quality
+        return quality.copy(reasonsFail = nextReasons, cardConfidence = nextCardConfidence)
     }
 }

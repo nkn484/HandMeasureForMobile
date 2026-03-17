@@ -14,19 +14,20 @@ import org.opencv.core.CvType
 import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
 class OpenCvCardDetector(
-    private val minAreaRatio: Double = 0.03,
+    // ID cards are often quite small in the preview frame; keep this low to avoid missing them.
+    private val minAreaRatio: Double = 0.008,
     private val aspectTarget: Double = 85.60 / 53.98,
-    private val aspectTolerance: Double = 0.18,
-    private val minAngleScore: Float = 0.65f,
+    private val aspectTolerance: Double = 0.42,
+    private val minAngleScore: Float = 0.50f,
 ) : CardDetector {
     override fun detect(frame: FramePacket): CardDetection? {
         val matsToRelease = ArrayList<Mat>()
-        val contours = ArrayList<MatOfPoint>()
         var mat: Mat? = null
         var matOfByte: MatOfByte? = null
         var fullLumaMat: Mat? = null
@@ -52,57 +53,42 @@ class OpenCvCardDetector(
 
             val edges = Mat()
             matsToRelease += edges
-            Imgproc.Canny(blurred, edges, 50.0, 150.0)
+            Imgproc.Canny(blurred, edges, 40.0, 120.0)
 
             val hierarchy = Mat()
             matsToRelease += hierarchy
-            Imgproc.findContours(edges, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
 
             val matLocal = mat ?: return null
             val frameArea = (matLocal.width() * matLocal.height()).toDouble()
             var best: Candidate? = null
 
-            for (contour in contours) {
-                val area = Imgproc.contourArea(contour)
-                if (area < frameArea * minAreaRatio) continue
+            val contours = ArrayList<MatOfPoint>()
+            Imgproc.findContours(edges, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+            best = bestCandidate(contours, frameArea, matLocal.width(), matLocal.height(), matsToRelease)
+            contours.forEach { it.release() }
+            contours.clear()
 
-                val contourPoints = contour.toArray()
-                val contour2f = MatOfPoint2f(*contourPoints)
-                matsToRelease += contour2f
-                val peri = Imgproc.arcLength(contour2f, true)
-                val approx = MatOfPoint2f()
-                matsToRelease += approx
-                Imgproc.approxPolyDP(contour2f, approx, 0.02 * peri, true)
+            if (best == null || best.confidence < 0.55f) {
+                val edges2 = Mat()
+                matsToRelease += edges2
+                Imgproc.Canny(blurred, edges2, 20.0, 60.0)
 
-                val points = approx.toArray()
-                if (points.size != 4) continue
+                val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
+                matsToRelease += kernel
+                Imgproc.dilate(edges2, edges2, kernel)
+                Imgproc.morphologyEx(edges2, edges2, Imgproc.MORPH_CLOSE, kernel)
 
-                val rectMat = MatOfPoint(*points)
-                matsToRelease += rectMat
-                val rect = Imgproc.boundingRect(rectMat)
-                val corners = orderCorners(points)
-                val aspect = estimateAspect(corners)
-                val aspectScore = aspectScore(aspect)
-                if (aspectScore <= 0f) continue
-
-                val angleScore = angleScore(corners)
-                if (angleScore < minAngleScore) continue
-
-                val areaScore = (area / frameArea).toFloat().coerceIn(0f, 1f)
-                val cutoffPenalty = cutoffPenalty(rect, matLocal.width(), matLocal.height())
-
-                val confidence =
-                    (0.5f * aspectScore + 0.3f * angleScore + 0.2f * areaScore) * cutoffPenalty
-
-                val candidate = Candidate(corners, aspectScore, angleScore, areaScore, confidence)
-                if (best == null || candidate.confidence > best.confidence) {
-                    best = candidate
+                Imgproc.findContours(edges2, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+                val best2 = bestCandidate(contours, frameArea, matLocal.width(), matLocal.height(), matsToRelease)
+                if (best2 != null && (best == null || best2.confidence > best!!.confidence)) {
+                    best = best2
                 }
+                contours.forEach { it.release() }
+                contours.clear()
             }
 
             return best?.toDetection()
         } finally {
-            contours.forEach { it.release() }
             matsToRelease.forEach { it.release() }
             releaseIfDistinct(lumaMat, fullLumaMat)
             releaseIfDistinct(mat, lumaMat)
@@ -128,13 +114,101 @@ class OpenCvCardDetector(
             )
     }
 
-    private fun orderCorners(points: Array<Point>): List<PointF> {
-        val pts = points.map { PointF(it.x.toFloat(), it.y.toFloat()) }
-        val topLeft = pts.minByOrNull { it.x + it.y }!!
-        val bottomRight = pts.maxByOrNull { it.x + it.y }!!
-        val topRight = pts.maxByOrNull { it.x - it.y }!!
-        val bottomLeft = pts.minByOrNull { it.x - it.y }!!
-        return listOf(topLeft, topRight, bottomRight, bottomLeft)
+    private fun bestCandidate(
+        contours: List<MatOfPoint>,
+        frameArea: Double,
+        frameWidth: Int,
+        frameHeight: Int,
+        matsToRelease: MutableList<Mat>,
+    ): Candidate? {
+        var best: Candidate? = null
+        for (contour in contours) {
+            val area = Imgproc.contourArea(contour)
+            if (area < frameArea * minAreaRatio) continue
+
+            val contourPoints = contour.toArray()
+            val contour2f = MatOfPoint2f(*contourPoints)
+            matsToRelease += contour2f
+
+            val rotated = Imgproc.minAreaRect(contour2f)
+            val rotatedArea = rotated.size.area()
+            if (rotatedArea <= 1.0) continue
+            val rectangularity = (area / rotatedArea).toFloat().coerceIn(0f, 1f)
+            if (rectangularity < 0.45f) continue
+
+            val peri = Imgproc.arcLength(contour2f, true)
+            val approx = MatOfPoint2f()
+            matsToRelease += approx
+            Imgproc.approxPolyDP(contour2f, approx, 0.02 * peri, true)
+
+            val points = approx.toArray()
+            val rect = Imgproc.boundingRect(contour)
+
+            val corners =
+                if (points.size == 4 && isConvex(points, matsToRelease)) {
+                    orderCorners(points)
+                } else {
+                    val box = arrayOf(Point(), Point(), Point(), Point())
+                    rotated.points(box)
+                    orderCorners(box)
+                }
+
+            val aspect = estimateAspect(corners).normalizeAspect()
+            val aspectScore = aspectScore(aspect)
+            if (aspectScore <= 0f) continue
+
+            val angleScore = angleScore(corners)
+            if (angleScore < minAngleScore) continue
+
+            val areaScore =
+                ((area / frameArea) / (minAreaRatio * 4.0))
+                    .toFloat()
+                    .coerceIn(0f, 1f)
+
+            val cutoffPenalty = cutoffPenalty(rect, frameWidth, frameHeight)
+
+            val confidence =
+                (0.38f * aspectScore + 0.27f * angleScore + 0.25f * rectangularity + 0.10f * areaScore) *
+                    cutoffPenalty
+
+            val candidate = Candidate(corners, aspectScore, angleScore, areaScore, confidence)
+            if (best == null || candidate.confidence > best.confidence) {
+                best = candidate
+            }
+        }
+        return best
+    }
+
+    private fun isConvex(points: Array<Point>, matsToRelease: MutableList<Mat>): Boolean {
+        val asInt = MatOfPoint(*points)
+        matsToRelease += asInt
+        return Imgproc.isContourConvex(asInt)
+    }
+
+    private fun orderCorners(points: Array<Point>): List<PointF> =
+        orderCorners(points.map { PointF(it.x.toFloat(), it.y.toFloat()) })
+
+    private fun orderCorners(points: List<PointF>): List<PointF> {
+        if (points.size != 4) return points
+        val cx = points.map { it.x }.average().toFloat()
+        val cy = points.map { it.y }.average().toFloat()
+        val sorted =
+            points.sortedBy { p ->
+                atan2((p.y - cy).toDouble(), (p.x - cx).toDouble())
+            }
+        val tlIndex = sorted.indices.minByOrNull { i -> sorted[i].x + sorted[i].y } ?: 0
+        val rotated = (0 until 4).map { sorted[(tlIndex + it) % 4] }
+
+        val p1 = rotated[1]
+        val p3 = rotated[3]
+        val trIsP1 =
+            (p1.y < p3.y) ||
+                (abs(p1.y - p3.y) < 1e-3f && p1.x > p3.x)
+        return if (trIsP1) {
+            listOf(rotated[0], rotated[1], rotated[2], rotated[3])
+        } else {
+            listOf(rotated[0], rotated[3], rotated[2], rotated[1])
+        }
     }
 
     private fun estimateAspect(corners: List<PointF>): Double {
@@ -146,6 +220,11 @@ class OpenCvCardDetector(
         val height = (h1 + h2) / 2.0
         if (height <= 0.0) return 0.0
         return width / height
+    }
+
+    private fun Double.normalizeAspect(): Double {
+        if (this <= 0.0) return this
+        return if (this < 1.0) 1.0 / this else this
     }
 
     private fun aspectScore(aspect: Double): Float {
@@ -198,7 +277,7 @@ class OpenCvCardDetector(
                 box.top < margin ||
                 box.right > (1f - margin) ||
                 box.bottom > (1f - margin)
-        return if (cut) 0.6f else 1f
+        return if (cut) 0.75f else 1f
     }
 
     private data class LumaMatResult(

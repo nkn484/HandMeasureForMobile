@@ -13,7 +13,7 @@ data class QualityGateConfig(
     val jitterThresholdPx: Float = 12f,
     val enableCsvLogging: Boolean = false,
     val requireCardForCapture: Boolean = true,
-    val cardMinConfidence: Float = 0.75f,
+    val cardMinConfidence: Float = 0.50f,
     val cardAnalysisIntervalMs: Long = 180L,
 
     // Blur VoL thresholds (after downsample to 160x160).

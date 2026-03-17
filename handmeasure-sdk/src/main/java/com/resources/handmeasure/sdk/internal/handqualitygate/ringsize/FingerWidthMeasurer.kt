@@ -23,11 +23,12 @@ data class FingerWidthResult(
 )
 
 class FingerWidthMeasurer(
-    private val edgeThreshold: Double = 35.0,
-    private val roiRadiusPx: Int = 80,
-    private val minWidthMm: Double = 12.0,
-    private val maxWidthMm: Double = 30.0,
-    private val symmetryTolerance: Double = 0.25,
+    // These thresholds are tuned to be tolerant across lighting/skin tones/backgrounds.
+    private val edgeThreshold: Double = 25.0,
+    private val roiRadiusPx: Int = 110,
+    private val minWidthMm: Double = 10.0,
+    private val maxWidthMm: Double = 35.0,
+    private val symmetryTolerance: Double = 0.35,
 ) {
     fun measure(frame: FramePacket, hand: HandDetection, mmPerPx: Double): FingerWidthResult? {
         if (hand.landmarks2dPx.size < 15) return null
@@ -125,17 +126,18 @@ class FingerWidthMeasurer(
     ): PointF? {
         val maxSteps = min(grad.cols(), grad.rows()) / 2
         var best: PointF? = null
+        var bestVal = 0.0
         for (step in 3 until maxSteps) {
             val x = (center.x + direction.x * step * sign).toInt()
             val y = (center.y + direction.y * step * sign).toInt()
             if (x !in 1 until grad.cols() - 1 || y !in 1 until grad.rows() - 1) break
             val v = grad.get(y, x)[0]
-            if (v >= edgeThreshold) {
+            if (v > bestVal) {
+                bestVal = v
                 best = PointF(x.toFloat(), y.toFloat())
-                break
             }
         }
-        return best
+        return if (bestVal >= edgeThreshold) best else null
     }
 
     private fun distance(a: PointF, b: PointF): Double {

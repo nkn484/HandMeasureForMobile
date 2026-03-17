@@ -107,6 +107,7 @@ private fun MainScreen(viewModel: MainViewModel) {
             lifecycleOwner = lifecycleOwner,
             previewView = previewView,
             analyzer = viewModel.analyzer,
+            onError = {},
         )
         onDispose {
             cameraController.shutdown()
@@ -167,10 +168,12 @@ private fun GuideOverlay(modifier: Modifier = Modifier) {
             style = stroke,
         )
 
-        val cardWidth = outerWidth * 0.30f
+        // Guide for ID-1 card placement (reference object).
+        // This is only a visual hint (detector scans full frame) so keep it generous.
+        val cardWidth = outerWidth * 0.42f
         val cardHeight = cardWidth / (85.60f / 53.98f)
-        val cardX = outerLeft + outerWidth * 0.08f
-        val cardY = outerTop + outerHeight * 0.64f
+        val cardX = outerLeft + outerWidth * 0.06f
+        val cardY = outerTop + outerHeight * 0.60f
         drawRoundRect(
             color = Color(0xB3FFD54F),
             topLeft = androidx.compose.ui.geometry.Offset(cardX, cardY),
@@ -179,38 +182,45 @@ private fun GuideOverlay(modifier: Modifier = Modifier) {
             style = stroke,
         )
 
+        // More realistic (still stylized) hand silhouette guide.
         val handPath = Path()
-        val handCenterX = outerLeft + outerWidth * 0.66f
-        val handCenterY = outerTop + outerHeight * 0.55f
-        val handWidth = outerWidth * 0.36f
-        val handHeight = outerHeight * 0.58f
+        val handCenterX = outerLeft + outerWidth * 0.64f
+        val handCenterY = outerTop + outerHeight * 0.56f
+        val handWidth = outerWidth * 0.44f
+        val handHeight = outerHeight * 0.70f
         val left = handCenterX - handWidth / 2f
-        val right = handCenterX + handWidth / 2f
         val top = handCenterY - handHeight / 2f
-        val bottom = handCenterY + handHeight / 2f
 
-        handPath.moveTo(left + handWidth * 0.32f, top + handHeight * 0.10f)
-        handPath.quadraticBezierTo(left + handWidth * 0.22f, top, left + handWidth * 0.15f, top + handHeight * 0.15f)
-        handPath.lineTo(left + handWidth * 0.14f, top + handHeight * 0.36f)
-        handPath.quadraticBezierTo(left + handWidth * 0.10f, top + handHeight * 0.48f, left + handWidth * 0.16f, top + handHeight * 0.60f)
-        handPath.lineTo(left + handWidth * 0.24f, top + handHeight * 0.82f)
-        handPath.quadraticBezierTo(left + handWidth * 0.40f, bottom, left + handWidth * 0.58f, top + handHeight * 0.94f)
-        handPath.lineTo(right - handWidth * 0.06f, top + handHeight * 0.82f)
-        handPath.quadraticBezierTo(right + handWidth * 0.02f, top + handHeight * 0.56f, right - handWidth * 0.03f, top + handHeight * 0.28f)
-        handPath.lineTo(right - handWidth * 0.20f, top + handHeight * 0.11f)
-        handPath.quadraticBezierTo(right - handWidth * 0.30f, top - handHeight * 0.02f, right - handWidth * 0.40f, top + handHeight * 0.09f)
-        handPath.lineTo(right - handWidth * 0.50f, top + handHeight * 0.23f)
-        handPath.quadraticBezierTo(right - handWidth * 0.58f, top + handHeight * 0.07f, right - handWidth * 0.68f, top + handHeight * 0.15f)
-        handPath.lineTo(right - handWidth * 0.74f, top + handHeight * 0.28f)
-        handPath.quadraticBezierTo(right - handWidth * 0.80f, top + handHeight * 0.09f, right - handWidth * 0.90f, top + handHeight * 0.22f)
-        handPath.lineTo(right - handWidth * 0.90f, top + handHeight * 0.40f)
+        fun p(x: Float, y: Float) =
+            androidx.compose.ui.geometry.Offset(left + x * handWidth, top + y * handHeight)
+
+        // Start at wrist (bottom-left), go clockwise.
+        handPath.moveTo(p(0.38f, 0.98f).x, p(0.38f, 0.98f).y)
+        handPath.cubicTo(p(0.30f, 0.96f).x, p(0.30f, 0.96f).y, p(0.24f, 0.90f).x, p(0.24f, 0.90f).y, p(0.22f, 0.82f).x, p(0.22f, 0.82f).y)
+        // Thumb.
+        handPath.cubicTo(p(0.18f, 0.70f).x, p(0.18f, 0.70f).y, p(0.12f, 0.60f).x, p(0.12f, 0.60f).y, p(0.16f, 0.48f).x, p(0.16f, 0.48f).y)
+        handPath.cubicTo(p(0.19f, 0.41f).x, p(0.19f, 0.41f).y, p(0.23f, 0.37f).x, p(0.23f, 0.37f).y, p(0.28f, 0.34f).x, p(0.28f, 0.34f).y)
+        // Valley between thumb and index.
+        handPath.cubicTo(p(0.33f, 0.31f).x, p(0.33f, 0.31f).y, p(0.36f, 0.28f).x, p(0.36f, 0.28f).y, p(0.38f, 0.24f).x, p(0.38f, 0.24f).y)
+        // Index finger tip and return.
+        handPath.cubicTo(p(0.40f, 0.17f).x, p(0.40f, 0.17f).y, p(0.42f, 0.10f).x, p(0.42f, 0.10f).y, p(0.47f, 0.12f).x, p(0.47f, 0.12f).y)
+        handPath.cubicTo(p(0.51f, 0.14f).x, p(0.51f, 0.14f).y, p(0.50f, 0.22f).x, p(0.50f, 0.22f).y, p(0.48f, 0.26f).x, p(0.48f, 0.26f).y)
+        // Middle finger.
+        handPath.cubicTo(p(0.49f, 0.18f).x, p(0.49f, 0.18f).y, p(0.53f, 0.06f).x, p(0.53f, 0.06f).y, p(0.59f, 0.08f).x, p(0.59f, 0.08f).y)
+        handPath.cubicTo(p(0.65f, 0.10f).x, p(0.65f, 0.10f).y, p(0.63f, 0.22f).x, p(0.63f, 0.22f).y, p(0.61f, 0.28f).x, p(0.61f, 0.28f).y)
+        // Ring finger.
+        handPath.cubicTo(p(0.63f, 0.20f).x, p(0.63f, 0.20f).y, p(0.69f, 0.08f).x, p(0.69f, 0.08f).y, p(0.75f, 0.12f).x, p(0.75f, 0.12f).y)
+        handPath.cubicTo(p(0.80f, 0.16f).x, p(0.80f, 0.16f).y, p(0.76f, 0.28f).x, p(0.76f, 0.28f).y, p(0.73f, 0.34f).x, p(0.73f, 0.34f).y)
+        // Little finger.
+        handPath.cubicTo(p(0.76f, 0.28f).x, p(0.76f, 0.28f).y, p(0.84f, 0.16f).x, p(0.84f, 0.16f).y, p(0.88f, 0.22f).x, p(0.88f, 0.22f).y)
+        handPath.cubicTo(p(0.91f, 0.28f).x, p(0.91f, 0.28f).y, p(0.86f, 0.38f).x, p(0.86f, 0.38f).y, p(0.82f, 0.44f).x, p(0.82f, 0.44f).y)
+        // Right palm down to wrist.
+        handPath.cubicTo(p(0.90f, 0.58f).x, p(0.90f, 0.58f).y, p(0.84f, 0.86f).x, p(0.84f, 0.86f).y, p(0.68f, 0.94f).x, p(0.68f, 0.94f).y)
+        handPath.cubicTo(p(0.60f, 0.98f).x, p(0.60f, 0.98f).y, p(0.46f, 0.99f).x, p(0.46f, 0.99f).y, p(0.38f, 0.98f).x, p(0.38f, 0.98f).y)
         handPath.close()
 
-        drawPath(
-            path = handPath,
-            color = Color(0xB34FC3F7),
-            style = stroke,
-        )
+        drawPath(path = handPath, color = Color(0x264FC3F7))
+        drawPath(path = handPath, color = Color(0xB34FC3F7), style = stroke)
     }
 }
 

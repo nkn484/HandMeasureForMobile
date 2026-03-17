@@ -13,6 +13,7 @@ data class QualityResult(
     val q_roi: Float,
     val q_conf: Float,
     val reasonsFail: List<String>,
+    val cardConfidence: Float? = null,
 
     // Raw metrics (current frame).
     val blurVoL: Double,
@@ -48,7 +49,7 @@ class QualityGateEngine(private val config: QualityGateConfig) {
         val qConf = if (hasHand) observation.confidence.coerceIn(0f, 1f) else 0f
         if (!hasHand) {
             reasons += QualityFailReason.NO_HAND
-        } else if (qConf < 0.5f) {
+        } else if (qConf < config.minHandConfidence) {
             reasons += QualityFailReason.LOW_CONF
         }
 
@@ -121,6 +122,7 @@ class QualityGateEngine(private val config: QualityGateConfig) {
             q_roi = avg.qRoi,
             q_conf = avg.qConf,
             reasonsFail = reasons.asReasonStrings(),
+            cardConfidence = null,
             blurVoL = blurVoL,
             motionMad = motionMad,
             meanY = exp.mean,

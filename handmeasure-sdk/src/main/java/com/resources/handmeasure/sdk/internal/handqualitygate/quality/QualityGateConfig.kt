@@ -4,6 +4,9 @@ data class QualityGateConfig(
     val readyThreshold: Float = 0.65f,
     val stableThreshold: Float = 0.78f,
     val stableFrames: Int = 12,
+    val minHandConfidence: Float = 0.35f,
+    // Set to 0 to disable "hold both hand + card for N ms" before capture.
+    val bothDetectedHoldMs: Long = 0L,
     val captureDurationMs: Long = 1500L,
     val cooldownMs: Long = 1000L,
     val downsampleSize: Int = 160,
@@ -13,7 +16,7 @@ data class QualityGateConfig(
     val jitterThresholdPx: Float = 12f,
     val enableCsvLogging: Boolean = false,
     val requireCardForCapture: Boolean = true,
-    val cardMinConfidence: Float = 0.75f,
+    val cardMinConfidence: Float = 0.50f,
     val cardAnalysisIntervalMs: Long = 180L,
 
     // Blur VoL thresholds (after downsample to 160x160).

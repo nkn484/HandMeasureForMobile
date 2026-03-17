@@ -12,8 +12,8 @@ data class SizeResult(
 )
 
 class SizeAggregator(
-    private val cardMinConfidence: Float = 0.75f,
-    private val handMinConfidence: Float = 0.65f,
+    private val cardMinConfidence: Float = 0.50f,
+    private val handMinConfidence: Float = 0.55f,
     private val minValidFrames: Int = 3,
     private val stableFrames: Int = 6,
 ) {

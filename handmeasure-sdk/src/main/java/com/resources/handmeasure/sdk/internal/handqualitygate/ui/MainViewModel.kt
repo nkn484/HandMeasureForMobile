@@ -1,8 +1,10 @@
-package com.resources.handmeasure.sdk.internal.ui
+﻿package com.resources.handmeasure.sdk.internal.ui
 
 import android.app.Application
 import androidx.camera.core.ImageAnalysis
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.resources.handmeasure.sdk.api.HandMeasureError
 import com.resources.handmeasure.sdk.internal.autocapture.AutoCaptureCallbacks
 import com.resources.handmeasure.sdk.internal.autocapture.AutoCaptureState
 import com.resources.handmeasure.sdk.internal.autocapture.AutoCaptureStateMachine
@@ -21,6 +23,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 
@@ -67,11 +71,12 @@ class MainViewModel(
         _uiState.update { it.copy(debugEnabled = enabled) }
     }
 
-    override fun onStateChanged(state: AutoCaptureState, progress: Float) {
+    override fun onStateChanged(state: AutoCaptureState, progress: Float, holdProgress: Float) {
         _uiState.update {
             it.copy(
                 state = state,
                 progress = progress,
+                handCardHoldProgress = holdProgress,
                 hintText = hintFor(state),
             )
         }
@@ -88,16 +93,45 @@ class MainViewModel(
                 )
             }
 
-        val sizeResult = ringSizeEstimator.estimateSize(packets)
-        val debugEnabled = _uiState.value.debugEnabled
-        val savedPaths = if (debugEnabled) saveFrames(result.sessionId, topFrames) else emptyList()
+        _uiState.update { it.copy(isProcessing = true) }
 
-        _uiState.update {
-            it.copy(
-                savedPaths = savedPaths,
-                sizeResult = sizeResult,
-                resultVersion = System.currentTimeMillis(),
-            )
+        viewModelScope.launch(Dispatchers.Default) {
+            val sizeResult =
+                try {
+                    ringSizeEstimator.estimateSize(packets)
+                } catch (t: Throwable) {
+                    val code =
+                        if (t is UnsatisfiedLinkError) {
+                            HandMeasureError.Code.OPENCV_INIT_FAILED
+                        } else {
+                            HandMeasureError.Code.INTERNAL_ERROR
+                        }
+                    _uiState.update {
+                        it.copy(
+                            isProcessing = false,
+                            fatalError =
+                                HandMeasureError(
+                                    code = code,
+                                    message = t.message ?: t.javaClass.simpleName,
+                                    recoverable = false,
+                                ),
+                            resultVersion = System.currentTimeMillis(),
+                        )
+                    }
+                    return@launch
+                }
+
+            val debugEnabled = _uiState.value.debugEnabled
+            val savedPaths = if (debugEnabled) saveFrames(result.sessionId, topFrames) else emptyList()
+
+            _uiState.update {
+                it.copy(
+                    isProcessing = false,
+                    savedPaths = savedPaths,
+                    sizeResult = sizeResult,
+                    resultVersion = System.currentTimeMillis(),
+                )
+            }
         }
     }
 
@@ -113,11 +147,11 @@ class MainViewModel(
 
     private fun hintFor(state: AutoCaptureState): String =
         when (state) {
-            AutoCaptureState.SEARCH -> "��a tay v� th? v�o khung"
-            AutoCaptureState.READY -> "Gi? tay ?n �?nh"
-            AutoCaptureState.STABLE -> "�ang ?n �?nh... chu?n b? ch?p"
-            AutoCaptureState.CAPTURE -> "�ang ch?p..."
-            AutoCaptureState.COOLDOWN -> "�ang ngh?..."
+            AutoCaptureState.SEARCH -> "Đưa tay vào khung. Đặt thẻ vào ô vàng."
+            AutoCaptureState.READY -> "Giữ tay ổn định"
+            AutoCaptureState.STABLE -> "Giữ yên... sắp chụp"
+            AutoCaptureState.CAPTURE -> "Đang chụp..."
+            AutoCaptureState.COOLDOWN -> "Đang xử lý..."
         }
 
     private fun saveFrames(sessionId: Long, frames: List<CapturedFrame>): List<String> {

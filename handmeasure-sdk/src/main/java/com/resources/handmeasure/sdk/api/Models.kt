@@ -55,6 +55,7 @@ sealed interface HandMeasureOutcome : Parcelable {
 @Parcelize
 enum class CancelReason : Parcelable {
     USER,
+    UNKNOWN,
     TIMEOUT,
     APP_BACKGROUND,
     PERMISSION_DENIED,
